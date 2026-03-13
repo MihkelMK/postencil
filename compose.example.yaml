@@ -1,9 +1,36 @@
 services:
-  webhook-proxy:
-    image: webhook-proxy:latest
-    # build: .
+  postencil:
+    image: ghcr.io/MihkelMK/postencil:latest
+    container_name: postencil
     ports:
       - "8080:8080"
+
+    # ── Security hardening ─────────────────────────────────────────────────────
+    user: "65534:65534" # run as nobody:nogroup - matches USER in Dockerfile
+    read_only: true # filesystem is immutable at runtime
+    cap_drop:
+      - ALL # drop all Linux capabilities - a plain HTTP proxy needs none
+    security_opt:
+      - no-new-privileges:true # prevent privilege escalation via setuid/setgid binaries
+
+    # ── Resource limits ────────────────────────────────────────────────────────
+    # Protects the host from runaway memory or process forks.
+    # Tune to your environment - these are conservative defaults for a small proxy.
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+          cpus: "0.25"
+          pids: 32 # a Go HTTP server needs very few OS threads
+
+    # ── Network ────────────────────────────────────────────────────────────────
+    # Isolate postencil to a dedicated network shared only with services that
+    # need to reach it or be reached by it.
+    networks:
+      - postencil
+    # If your ntfy instance is also in Docker, add it to the same network
+    # and use its service name as TARGET_URL instead of a public hostname.
+
     environment:
       # Required: where to forward requests to
       TARGET_URL: "https://ntfy.example.com"
@@ -25,12 +52,12 @@ services:
       # Which query params to redact. Comma-separated, case-insensitive. (default: auth,token)
       # CENSORED_QUERY_PARAMS: "auth,token"
 
-      # Template rendering — all default to false (transparent passthrough).
+      # Template rendering - all default to false (transparent passthrough).
       #
       # Accepts:
-      #   false        — disabled (default)
-      #   true         — render all keys
-      #   "Key1,Key2"  — render only those exact key names (case-sensitive, no alias resolution)
+      #   false        - disabled (default)
+      #   true         - render all keys
+      #   "Key1,Key2"  - render only those exact key names (case-sensitive, no alias resolution)
       #
       # Example for Forgejo → ntfy: only render X-ID so PR updates replace their notification
       TEMPLATE_QUERY_PARAMS: "X-ID"
@@ -39,8 +66,12 @@ services:
       # TEMPLATE_BODY: "false"
 
       # When a template fails to render:
-      #   true (default) — log a warning and forward the original unmodified value
-      #   false          — return HTTP 400 to the caller
+      #   true (default) - log a warning and forward the original unmodified value
+      #   false          - return HTTP 400 to the caller
       # TEMPLATE_ERROR_PASSTHROUGH: "true"
 
     restart: unless-stopped
+
+networks:
+  postencil:
+    driver: bridge
