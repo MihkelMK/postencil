@@ -1,0 +1,46 @@
+services:
+  webhook-proxy:
+    image: webhook-proxy:latest
+    # build: .
+    ports:
+      - "8080:8080"
+    environment:
+      # Required: where to forward requests to
+      TARGET_URL: "https://ntfy.example.com"
+
+      # Optional: listening address (default :8080)
+      # LISTEN_ADDR: ":8080"
+
+      # Logging: debug | info | warn | error (default: info)
+      # At info level: logs incoming request URL + sender and target response status.
+      # At debug level: also logs request and response headers.
+      # LOG_LEVEL: "info"
+
+      # Redact auth-related headers and query params from logs (default: true)
+      # CENSOR_AUTH_TOKENS: "true"
+
+      # Which headers to redact. Comma-separated, case-insensitive. (default: Authorization)
+      # CENSORED_HEADERS: "Authorization"
+
+      # Which query params to redact. Comma-separated, case-insensitive. (default: auth,token)
+      # CENSORED_QUERY_PARAMS: "auth,token"
+
+      # Template rendering — all default to false (transparent passthrough).
+      #
+      # Accepts:
+      #   false        — disabled (default)
+      #   true         — render all keys
+      #   "Key1,Key2"  — render only those exact key names (case-sensitive, no alias resolution)
+      #
+      # Example for Forgejo → ntfy: only render X-ID so PR updates replace their notification
+      TEMPLATE_QUERY_PARAMS: "X-ID"
+
+      # TEMPLATE_HEADERS: "false"
+      # TEMPLATE_BODY: "false"
+
+      # When a template fails to render:
+      #   true (default) — log a warning and forward the original unmodified value
+      #   false          — return HTTP 400 to the caller
+      # TEMPLATE_ERROR_PASSTHROUGH: "true"
+
+    restart: unless-stopped
