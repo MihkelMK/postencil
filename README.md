@@ -182,4 +182,4 @@ postencil/
 
 ## License
 
-[GPL-3.0](./LICENSE)
+[GPLv3](./LICENSE)
