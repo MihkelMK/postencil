@@ -19,7 +19,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
 FROM scratch
 
 LABEL org.opencontainers.image.source=https://github.com/MihkelMK/postencil
-LABEL org.opencontainers.image.description="Webhook proxy that renders Go templates in request fields before forwarding to a target."
+LABEL org.opencontainers.image.description="A webhook proxy that renders Go templates in request fields before forwarding to the target URL."
 LABEL org.opencontainers.image.licenses="GPLv3"
 
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/

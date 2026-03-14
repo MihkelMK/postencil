@@ -1,13 +1,13 @@
 # postencil
 
-A lightweight, transparent webhook proxy that renders [Go templates](https://pkg.go.dev/text/template) in request fields before forwarding to a target URL.
+A webhook proxy that renders [Go templates](https://pkg.go.dev/text/template) in request fields before forwarding to the target URL.
 
 By default postencil is a pure pass-through proxy. It touches nothing.\
 Template rendering is opt-in, per field, via environment variables.\
 Every feature that could affect your webhooks requires an explicit decision to enable it.
 
 > [!CAUTION]
-> This is mostly LLM generated to solve a problem in my homelab. DON'T USE IN ACTUAL PRODUCTION ENVIRONMENTS
+> This is mostly LLM generated to solve a problem in my homelab.<br>**DON'T USE IN ACTUAL PRODUCTION ENVIRONMENTS**
 
 ---
 
@@ -35,7 +35,7 @@ TEMPLATE_QUERY_PARAMS: "sequence-id"
 TARGET_URL: "https://ntfy.example.com"
 ```
 
-**postencil is target-agnostic**. It knows nothing about Forgejo or ntfy specifically.
+_postencil is target-agnostic. It knows nothing about Forgejo or ntfy specifically._
 
 ---
 
@@ -52,8 +52,6 @@ Webhook source → postencil → target
                     ├── render path template (if set)
                     └── forward with response streamed back
 ```
-
-Templates use Go's `text/template` syntax, the same engine ntfy uses for its own title/body templating, so any template that works there works identically here.
 
 ---
 
@@ -81,7 +79,7 @@ make build
 ./bin/postencil
 ```
 
-Requires Go 1.26+.
+Requires Go 1.26+
 
 ---
 
@@ -98,16 +96,6 @@ All configuration is via environment variables. The only required variable is `T
 
 ### Template rendering
 
-All template options default to `false`. postencil is fully transparent until you opt in.
-
-Each field-level option accepts one of three values:
-
-| Value         | Behaviour                                                              |
-| ------------- | ---------------------------------------------------------------------- |
-| `false`       | Disabled. The field is forwarded untouched.                            |
-| `true`        | All keys in this field are rendered as Go templates.                   |
-| `"Key1,Key2"` | Only the named keys are rendered. Case-sensitive, no alias resolution. |
-
 | Variable                | Default | Description                                                                                                             |
 | ----------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------- |
 | `TEMPLATE_QUERY_PARAMS` | `false` | Query parameters to render.                                                                                             |
@@ -116,17 +104,23 @@ Each field-level option accepts one of three values:
 | `TEMPLATE_METHOD`       | -       | Go template for the forwarded HTTP method. Empty means use the incoming method.                                         |
 | `TEMPLATE_PATH`         | -       | Go template for the forwarded request path. Empty means use the incoming path. Must render to a path starting with `/`. |
 
+`TEMPLATE_QUERY_PARAMS` and `TEMPLATE_HEADERS` accept one of three values:
+
+| Value         | Behaviour                                                              |
+| ------------- | ---------------------------------------------------------------------- |
+| `false`       | Disabled. The field is forwarded untouched.                            |
+| `true`        | All keys in this field are rendered as Go templates.                   |
+| `"Key1,Key2"` | Only the named keys are rendered. Case-sensitive, no alias resolution. |
+
 **On alias resolution:**\
-ntfy and other services often have aliases for the same field (e.g. querry param `sequence-id` and headers `X-Sequence-ID`, `SEQUENCE-ID`, `SID`).\
-postencil does not resolve these. If you use `sequence-id` in your webhook URL, put `sequence-id` in the env var.
+ntfy and other services often have aliases for the same field (e.g. querry param `sequence-id` and headers `X-Sequence-ID`, `SEQUENCE-ID`, `SID`). **postencil does not resolve these.**\
+If you use `sequence-id` in your webhook URL, put `sequence-id` in the env var.
 
 ### Error handling
 
-| Variable          | Default | Description                                                                                                                |
-| ----------------- | ------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `TEMPLATE_STRICT` | `false` | On template failure, log a warning and forward the original unmodified value.<br>Set to `true` to return HTTP 400 instead. |
-
-The default preserves the transparent-by-default principle: a broken template should not silently drop your webhook.
+| Variable          | Default | Description                                                                                                             |
+| ----------------- | ------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `TEMPLATE_STRICT` | `false` | On template failure, log a warning and forward the original unmodified value. Set to `true` to return HTTP 400 instead. |
 
 ### Logging
 
@@ -167,7 +161,7 @@ When any templating is enabled, postencil injects the following under the top-le
 | `.request.params.KEY`          | Query parameter KEY (first value, URL-decoded) |
 | `.request.headers.Header-Name` | Request header value                           |
 
-Example — override the HTTP method based on a query parameter:
+Example: override the HTTP method based on a query parameter:
 
 ```yaml
 # Forgejo sends all webhook events as POST. ntfy DISMISS requires DELETE.
@@ -182,7 +176,7 @@ TEMPLATE_METHOD: '{{if eq .request.params.action "close"}}DELETE{{else}}POST{{en
 When `TEMPLATE_BODY=true`, the request body is rendered as a template. Template actions inside JSON string values cannot contain quoted string literals, because inner `"` characters would break JSON syntax.
 
 ```
-# This is invalid JSON — the inner quotes break the string:
+# This is invalid JSON. The inner quotes break the string:
 {"topic":"{{index .request.params "event"}}"}
 
 # Use dot notation instead (works when the key has no hyphens):
@@ -202,20 +196,6 @@ make test-verbose # run tests with output
 make lint         # run golangci-lint
 make fmt          # run goimports
 make docker       # build docker image
-```
-
-### Project layout
-
-```
-postencil/
-├── cmd/postencil/      # entrypoint only
-├── internal/
-│   ├── config/         # env var loading and validation
-│   ├── fieldset/       # none / all / specific-keys type
-│   ├── proxy/          # HTTP handler
-│   └── tmpl/           # Go template rendering
-├── Dockerfile
-└── Makefile
 ```
 
 ---
