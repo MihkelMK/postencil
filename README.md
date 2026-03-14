@@ -6,6 +6,9 @@ By default postencil is a pure pass-through proxy. It touches nothing.\
 Template rendering is opt-in, per field, via environment variables.\
 Every feature that could affect your webhooks requires an explicit decision to enable it.
 
+> [!CAUTION]
+> This is mostly LLM generated to solve a problem in my homelab. DON'T USE IN ACTUAL PRODUCTION ENVIRONMENTS
+
 ---
 
 ## Use case
