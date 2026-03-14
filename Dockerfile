@@ -25,6 +25,5 @@ LABEL org.opencontainers.image.licenses="GPLv3"
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=builder /build/postencil /postencil
 
-EXPOSE 8080
 
 ENTRYPOINT ["/postencil"]
