@@ -74,7 +74,7 @@ make build
 ./bin/postencil
 ```
 
-Requires Go 1.22+. No external dependencies.
+Requires Go 1.26+.
 
 ---
 
@@ -135,7 +135,7 @@ At `debug` level, request and response headers are also logged (subject to censo
 
 ## Template syntax
 
-Templates use Go's [`text/template`](https://pkg.go.dev/text/template) package.\
+Templates use Go's [`text/template`](https://pkg.go.dev/text/template) package with [Sprig](https://masterminds.github.io/sprig/) functions available.\
 The dot context (`.`) is the parsed JSON body of the incoming request.
 
 ```go
