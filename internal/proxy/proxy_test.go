@@ -376,6 +376,299 @@ func TestTargetErrorReturns502(t *testing.T) {
 	}
 }
 
+func TestBodyTemplateFromRequestMetadata(t *testing.T) {
+	// TEMPLATE_BODY can reference .request.* metadata, not just body fields.
+	// This lets operators rewrite the forwarded body based on incoming query params
+	// without the sender needing to include those values in the JSON payload.
+	var gotBody string
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		gotBody = string(b)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer target.Close()
+
+	cfg := newTestConfig(target.URL)
+	cfg.TemplateBody = true
+	h := proxy.NewHandler(cfg, newLogger())
+
+	// Dot notation works here because "event" has no hyphens. A hyphenated param
+	// name would require index syntax, but that can't be expressed inside a JSON
+	// string (unescaped quotes would break JSON).
+	body := `{"action":"{{.request.params.event}}"}`
+	req := httptest.NewRequest(http.MethodPost, "/topic?event=push", strings.NewReader(body))
+	rr := httptest.NewRecorder()
+
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", rr.Code)
+	}
+	if gotBody != `{"action":"push"}` {
+		t.Errorf("body = %q, want rendered body", gotBody)
+	}
+}
+
+func TestNullJSONBodyWithMethodTemplate(t *testing.T) {
+	// A JSON null body is valid — Unmarshal produces nil which the proxy resets to an
+	// empty map. Template data then contains only .request.* metadata, which should
+	// still be accessible.
+	var gotMethod string
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer target.Close()
+
+	cfg := newTestConfig(target.URL)
+	cfg.TemplateMethod = `{{if eq (index .request.params "action") "close"}}DELETE{{else}}POST{{end}}`
+	h := proxy.NewHandler(cfg, newLogger())
+
+	req := httptest.NewRequest(http.MethodPost, "/topic?action=close", strings.NewReader("null"))
+	rr := httptest.NewRecorder()
+
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", rr.Code)
+	}
+	if gotMethod != http.MethodDelete {
+		t.Errorf("method = %q, want DELETE", gotMethod)
+	}
+}
+
+func TestMethodTemplating(t *testing.T) {
+	var gotMethod string
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer target.Close()
+
+	cfg := newTestConfig(target.URL)
+	cfg.TemplateMethod = "DELETE"
+	h := proxy.NewHandler(cfg, newLogger())
+
+	req := httptest.NewRequest(http.MethodPost, "/topic", strings.NewReader("{}"))
+	rr := httptest.NewRecorder()
+
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", rr.Code)
+	}
+	if gotMethod != http.MethodDelete {
+		t.Errorf("method = %q, want DELETE", gotMethod)
+	}
+}
+
+func TestConditionalMethodFromRequestParams(t *testing.T) {
+	// Forgejo use case: ntfy DISMISS requires DELETE, other actions use POST.
+	// TEMPLATE_METHOD lets the operator encode this routing without changing the
+	// sender — the decision is made purely from the incoming query parameter.
+	var gotMethod string
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer target.Close()
+
+	cfg := newTestConfig(target.URL)
+	cfg.TemplateMethod = `{{if eq (index .request.params "action") "close"}}DELETE{{else}}POST{{end}}`
+	h := proxy.NewHandler(cfg, newLogger())
+
+	req := httptest.NewRequest(http.MethodPost, "/topic?action=close", strings.NewReader("{}"))
+	rr := httptest.NewRecorder()
+
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", rr.Code)
+	}
+	if gotMethod != http.MethodDelete {
+		t.Errorf("method = %q, want DELETE", gotMethod)
+	}
+}
+
+func TestInvalidRenderedMethodNonStrict(t *testing.T) {
+	// A rendered method containing whitespace is not a valid HTTP token (RFC 7230 §3.1.1).
+	// Non-strict mode should fall back to the original method rather than forward a
+	// broken request.
+	var gotMethod string
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer target.Close()
+
+	cfg := newTestConfig(target.URL)
+	cfg.TemplateMethod = "PUT PATCH" // space makes this an invalid method token
+	cfg.TemplateStrict = false
+	h := proxy.NewHandler(cfg, newLogger())
+
+	req := httptest.NewRequest(http.MethodPost, "/topic", strings.NewReader("{}"))
+	rr := httptest.NewRecorder()
+
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200 (non-strict)", rr.Code)
+	}
+	if gotMethod != http.MethodPost {
+		t.Errorf("method = %q, want original POST", gotMethod)
+	}
+}
+
+func TestInvalidRenderedMethodStrict(t *testing.T) {
+	// CRLF in a rendered method would allow header injection into the outgoing request.
+	// Strict mode must reject it with 400 rather than forward the broken method.
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer target.Close()
+
+	cfg := newTestConfig(target.URL)
+	cfg.TemplateMethod = "GET\r\nX-Injected: evil"
+	cfg.TemplateStrict = true
+	h := proxy.NewHandler(cfg, newLogger())
+
+	req := httptest.NewRequest(http.MethodPost, "/topic", strings.NewReader("{}"))
+	rr := httptest.NewRecorder()
+
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", rr.Code)
+	}
+}
+
+func TestPathTemplating(t *testing.T) {
+	var gotPath string
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer target.Close()
+
+	cfg := newTestConfig(target.URL)
+	cfg.TemplatePath = "/items/{{.id}}"
+	h := proxy.NewHandler(cfg, newLogger())
+
+	req := httptest.NewRequest(http.MethodPost, "/topic", strings.NewReader(`{"id":"abc123"}`))
+	rr := httptest.NewRecorder()
+
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", rr.Code)
+	}
+	if gotPath != "/items/abc123" {
+		t.Errorf("path = %q, want %q", gotPath, "/items/abc123")
+	}
+}
+
+func TestInvalidRenderedPathNonStrict(t *testing.T) {
+	// A rendered path without a leading / cannot be joined onto the target base URL
+	// correctly. Non-strict mode should fall back to the original path.
+	var gotPath string
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer target.Close()
+
+	cfg := newTestConfig(target.URL)
+	cfg.TemplatePath = "items/abc123" // missing leading /
+	cfg.TemplateStrict = false
+	h := proxy.NewHandler(cfg, newLogger())
+
+	req := httptest.NewRequest(http.MethodPost, "/original", strings.NewReader("{}"))
+	rr := httptest.NewRecorder()
+
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200 (non-strict)", rr.Code)
+	}
+	if gotPath != "/original" {
+		t.Errorf("path = %q, want original /original", gotPath)
+	}
+}
+
+func TestInvalidRenderedPathStrict(t *testing.T) {
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer target.Close()
+
+	cfg := newTestConfig(target.URL)
+	cfg.TemplatePath = "items/abc123" // missing leading /
+	cfg.TemplateStrict = true
+	h := proxy.NewHandler(cfg, newLogger())
+
+	req := httptest.NewRequest(http.MethodPost, "/original", strings.NewReader("{}"))
+	rr := httptest.NewRecorder()
+
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", rr.Code)
+	}
+}
+
+func TestRequestKeyCollisionNonStrict(t *testing.T) {
+	// The proxy injects request metadata under the top-level "request" key.
+	// If the body already has a "request" key it is overwritten — non-strict mode
+	// warns but still forwards so the injected metadata wins.
+	var gotMethod string
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer target.Close()
+
+	cfg := newTestConfig(target.URL)
+	cfg.TemplateMethod = `{{.request.method}}`
+	cfg.TemplateStrict = false
+	h := proxy.NewHandler(cfg, newLogger())
+
+	// Body "request" key is overwritten; .request.method resolves to the real incoming method.
+	body := `{"request":{"method":"SHOULD_BE_OVERWRITTEN"}}`
+	req := httptest.NewRequest(http.MethodPost, "/topic", strings.NewReader(body))
+	rr := httptest.NewRecorder()
+
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200 (non-strict)", rr.Code)
+	}
+	if gotMethod != http.MethodPost {
+		t.Errorf("method = %q, want POST (from injected request metadata)", gotMethod)
+	}
+}
+
+func TestRequestKeyCollisionStrict(t *testing.T) {
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer target.Close()
+
+	cfg := newTestConfig(target.URL)
+	cfg.TemplateMethod = `{{.request.method}}`
+	cfg.TemplateStrict = true
+	h := proxy.NewHandler(cfg, newLogger())
+
+	body := `{"request":{"method":"DELETE"}}`
+	req := httptest.NewRequest(http.MethodPost, "/topic", strings.NewReader(body))
+	rr := httptest.NewRecorder()
+
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", rr.Code)
+	}
+}
+
 func TestUntouchedQueryParamNotTemplated(t *testing.T) {
 	var gotTopic string
 	var gotID string

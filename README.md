@@ -45,7 +45,9 @@ Webhook source → postencil → target
                     ├── render templates in configured query params
                     ├── render templates in configured headers
                     ├── render templates in body (if enabled)
-                    └── forward with original method, path, and response streamed back
+                    ├── render method template (if set)
+                    ├── render path template (if set)
+                    └── forward with response streamed back
 ```
 
 Templates use Go's `text/template` syntax, the same engine ntfy uses for its own title/body templating, so any template that works there works identically here.
@@ -103,11 +105,13 @@ Each field-level option accepts one of three values:
 | `true`        | All keys in this field are rendered as Go templates.                   |
 | `"Key1,Key2"` | Only the named keys are rendered. Case-sensitive, no alias resolution. |
 
-| Variable                | Default | Description                                |
-| ----------------------- | ------- | ------------------------------------------ |
-| `TEMPLATE_QUERY_PARAMS` | `false` | Query parameters to render.                |
-| `TEMPLATE_HEADERS`      | `false` | Request headers to render.                 |
-| `TEMPLATE_BODY`         | `false` | Whether to render the entire request body. |
+| Variable                | Default | Description                                                                                                             |
+| ----------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `TEMPLATE_QUERY_PARAMS` | `false` | Query parameters to render.                                                                                             |
+| `TEMPLATE_HEADERS`      | `false` | Request headers to render.                                                                                              |
+| `TEMPLATE_BODY`         | `false` | Whether to render the entire request body.                                                                              |
+| `TEMPLATE_METHOD`       | -       | Go template for the forwarded HTTP method. Empty means use the incoming method.                                         |
+| `TEMPLATE_PATH`         | -       | Go template for the forwarded request path. Empty means use the incoming path. Must render to a path starting with `/`. |
 
 **On alias resolution:**\
 ntfy and other services often have aliases for the same field (e.g. querry param `sequence-id` and headers `X-Sequence-ID`, `SEQUENCE-ID`, `SID`).\
@@ -140,18 +144,49 @@ At `debug` level, request and response headers are also logged (subject to censo
 Templates use Go's [`text/template`](https://pkg.go.dev/text/template) package with [Sprig](https://masterminds.github.io/sprig/) functions available.\
 The dot context (`.`) is the parsed JSON body of the incoming request.
 
-```go
-# Simple field access
-{{.field}}
-
-# Nested field
-{{.repository.full_name}}
-
-# With conditionals
-{{if eq .action "opened"}}opened{{else}}updated{{end}}
+```
+{{.field}}                                            # simple field access
+{{.repository.full_name}}                             # nested field
+{{.repository.full_name | replace "/" "_"}}           # Sprig function
+{{if eq .action "opened"}}opened{{else}}updated{{end}} # conditional
 ```
 
 If a template references a key that doesn't exist in the JSON body, rendering fails and postencil falls back to the original value (with `TEMPLATE_STRICT=false`) or returns a 400 (with `TEMPLATE_STRICT=true`).
+
+### Request metadata
+
+When any templating is enabled, postencil injects the following under the top-level `.request` key, accessible in any template regardless of which field is being rendered:
+
+| Key                            | Value                                          |
+| ------------------------------ | ---------------------------------------------- |
+| `.request.method`              | Incoming HTTP method (`GET`, `POST`, …)        |
+| `.request.path`                | Incoming request path, URL-decoded             |
+| `.request.params.KEY`          | Query parameter KEY (first value, URL-decoded) |
+| `.request.headers.Header-Name` | Request header value                           |
+
+Example — override the HTTP method based on a query parameter:
+
+```yaml
+# Forgejo sends all webhook events as POST. ntfy DISMISS requires DELETE.
+# Use TEMPLATE_METHOD to map the Forgejo "action" param to the right method.
+TEMPLATE_METHOD: '{{if eq .request.params.action "close"}}DELETE{{else}}POST{{end}}'
+```
+
+> **Conflict:** if the JSON body has a top-level `"request"` key it is overwritten by the injected metadata. postencil logs a warning. With `TEMPLATE_STRICT=true` it returns HTTP 400 instead.
+
+### Limitation: quoted string literals inside JSON body templates
+
+When `TEMPLATE_BODY=true`, the request body is rendered as a template. Template actions inside JSON string values cannot contain quoted string literals, because inner `"` characters would break JSON syntax.
+
+```
+# This is invalid JSON — the inner quotes break the string:
+{"topic":"{{index .request.params "event"}}"}
+
+# Use dot notation instead (works when the key has no hyphens):
+{"topic":"{{.request.params.event}}"}
+```
+
+For hyphenated param names (e.g. `sequence-id`) inside a body template, use `TEMPLATE_QUERY_PARAMS` to render the value as a query param rather than embedding it in the body.
 
 ---
 

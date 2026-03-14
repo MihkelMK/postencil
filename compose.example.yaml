@@ -65,6 +65,17 @@ services:
       # TEMPLATE_HEADERS: "false"
       # TEMPLATE_BODY: "false"
 
+      # Go template for the forwarded HTTP method. Empty means use the incoming method.
+      # Example: map Forgejo action param to DELETE for ntfy DISMISS:
+      # TEMPLATE_METHOD: '{{if eq .request.params.action "close"}}DELETE{{else}}POST{{end}}'
+      # TEMPLATE_METHOD: ""
+
+      # Go template for the forwarded request path. Must render to a path starting with /.
+      # Empty means use the incoming path.
+      # Example: route to a path derived from a body field:
+      # TEMPLATE_PATH: "/items/{{.id}}"
+      # TEMPLATE_PATH: ""
+
       # When a template fails to render:
       #   false (default) - log a warning and forward the original unmodified value
       #   true            - return HTTP 400 to the caller
