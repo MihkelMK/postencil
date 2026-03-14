@@ -25,5 +25,7 @@ LABEL org.opencontainers.image.licenses="GPLv3"
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=builder /build/postencil /postencil
 
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
+  CMD ["/postencil", "--healthcheck"]
 
 ENTRYPOINT ["/postencil"]

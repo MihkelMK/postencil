@@ -81,6 +81,13 @@ services:
       #   true            - return HTTP 400 to the caller
       # TEMPLATE_STRICT: "false"
 
+    healthcheck:
+      test: ["CMD", "/postencil", "--healthcheck"]
+      interval: 30s
+      timeout: 5s
+      start_period: 5s
+      retries: 3
+
     restart: unless-stopped
 
 networks:

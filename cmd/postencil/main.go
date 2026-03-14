@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"time"
@@ -11,6 +13,33 @@ import (
 )
 
 func main() {
+	// Healthcheck mode: ping the local /healthz endpoint and exit 0/1.
+	// Runs before config loading so TARGET_URL being unset does not block the check.
+	// Used by the Dockerfile HEALTHCHECK instruction.
+	if len(os.Args) > 1 && os.Args[1] == "--healthcheck" {
+		addr := os.Getenv("LISTEN_ADDR")
+		if addr == "" {
+			addr = ":8080"
+		}
+		_, port, err := net.SplitHostPort(addr)
+		if err != nil {
+			os.Exit(1)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://localhost:"+port+"/healthz", nil) //nolint:gosec // G704: always localhost, operator-configured port
+		if err != nil {
+			cancel()
+			os.Exit(1)
+		}
+		resp, err := http.DefaultClient.Do(req) //nolint:gosec // G704: see above
+		cancel()
+		if err != nil || resp.StatusCode != http.StatusOK {
+			os.Exit(1)
+		}
+		resp.Body.Close()
+		os.Exit(0)
+	}
+
 	cfg, err := config.Load()
 	if err != nil {
 		slog.Error("configuration error", "error", err)
@@ -34,11 +63,17 @@ func main() {
 		"log_level", cfg.LogLevel.String(),
 	)
 
-	handler := proxy.NewHandler(cfg, logger)
+	proxyHandler := proxy.NewHandler(cfg, logger)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	mux.Handle("/", proxyHandler)
 
 	srv := &http.Server{
 		Addr:         cfg.ListenAddr,
-		Handler:      handler,
+		Handler:      mux,
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 60 * time.Second,
 		IdleTimeout:  120 * time.Second,
