@@ -64,7 +64,7 @@ Templates use Go's `text/template` syntax, the same engine ntfy uses for its own
 ```yaml
 services:
   postencil:
-    image: ghcr.io/MihkelMK/postencil:latest
+    image: ghcr.io/mihkelmk/postencil:latest
     ports:
       - "8080:8080"
     environment:
