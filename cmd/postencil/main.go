@@ -26,7 +26,7 @@ func main() {
 		"template_query_params", cfg.TemplateQueryParams.String(),
 		"template_headers", cfg.TemplateHeaders.String(),
 		"template_body", cfg.TemplateBody,
-		"template_error_passthrough", cfg.TemplateErrorPassthrough,
+		"template_strict", cfg.TemplateStrict,
 		"censor_auth_tokens", cfg.CensorAuthTokens,
 		"log_level", cfg.LogLevel.String(),
 	)

@@ -5,7 +5,6 @@ package proxy
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -77,7 +76,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h.logger.WarnContext(ctx, "failed to parse JSON body for templating — forwarding untouched",
 				"error", err,
 			)
-			if !h.cfg.TemplateErrorPassthrough {
+			if h.cfg.TemplateStrict {
 				http.Error(w, fmt.Sprintf("failed to parse JSON body: %v", err), http.StatusBadRequest)
 				return
 			}
@@ -88,13 +87,29 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// ── Render query params ────────────────────────────────────────────────
 	outQuery := url.Values{}
 	for key, values := range r.URL.Query() {
-		outQuery[key] = h.renderValues(ctx, "query param", key, values, h.cfg.TemplateQueryParams, data)
+		rendered, err := h.renderValues("query param", key, values, h.cfg.TemplateQueryParams, data)
+		if err != nil {
+			h.logger.WarnContext(ctx, "template render failed", "error", err)
+			if h.cfg.TemplateStrict {
+				http.Error(w, fmt.Sprintf("template error: %v", err), http.StatusBadRequest)
+				return
+			}
+		}
+		outQuery[key] = rendered
 	}
 
 	// ── Render headers ─────────────────────────────────────────────────────
 	outHeaders := r.Header.Clone()
 	for key, values := range r.Header {
-		outHeaders[key] = h.renderValues(ctx, "header", key, values, h.cfg.TemplateHeaders, data)
+		rendered, err := h.renderValues("header", key, values, h.cfg.TemplateHeaders, data)
+		if err != nil {
+			h.logger.WarnContext(ctx, "template render failed", "error", err)
+			if h.cfg.TemplateStrict {
+				http.Error(w, fmt.Sprintf("template error: %v", err), http.StatusBadRequest)
+				return
+			}
+		}
+		outHeaders[key] = rendered
 	}
 	for _, hop := range hopByHopHeaders {
 		outHeaders.Del(hop)
@@ -105,12 +120,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if h.cfg.TemplateBody && data != nil {
 		rendered, err := tmpl.Render(string(bodyBytes), data)
 		if err != nil {
-			h.logger.WarnContext(ctx, "template render failed for body", "error", err)
-			if !h.cfg.TemplateErrorPassthrough {
+			h.logger.WarnContext(ctx, "template render failed", "location", "body", "error", err)
+			if h.cfg.TemplateStrict {
 				http.Error(w, fmt.Sprintf("template error in body: %v", err), http.StatusBadRequest)
 				return
 			}
-			// passthrough: keep original body
+			// non-strict: keep original body
 		} else {
 			outBody = []byte(rendered)
 		}
@@ -173,35 +188,28 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// renderValues renders template values for all matched keys in a FieldSet.
-// If the key is not matched by fs, or data is nil (body parse failed + passthrough),
-// the original values are returned unchanged. Per-key render failures always
-// passthrough — they log a warning but do not abort the request.
+// renderValues renders template values for all keys matched by fs.
+// Returns the original values unchanged if the key is not matched or data is nil.
+// On render failure, returns the original values and a non-nil error — the caller
+// decides whether to log a warning and continue or abort the request.
 func (h *Handler) renderValues(
-	ctx context.Context,
 	location, key string,
 	values []string,
 	fs fieldset.FieldSet,
 	data map[string]any,
-) []string {
+) ([]string, error) {
 	if !fs.Matches(key) || data == nil {
-		return values
+		return values, nil
 	}
 	out := make([]string, len(values))
 	for i, v := range values {
 		rendered, err := tmpl.Render(v, data)
 		if err != nil {
-			h.logger.WarnContext(ctx, "template render failed — using original value",
-				"location", location,
-				"key", key,
-				"error", err,
-			)
-			out[i] = v
-		} else {
-			out[i] = rendered
+			return values, fmt.Errorf("%s %q: %w", location, key, err)
 		}
+		out[i] = rendered
 	}
-	return out
+	return out, nil
 }
 
 // censorHeaders returns a copy of headers with configured names redacted.

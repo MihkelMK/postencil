@@ -66,9 +66,9 @@ services:
       # TEMPLATE_BODY: "false"
 
       # When a template fails to render:
-      #   true (default) - log a warning and forward the original unmodified value
-      #   false          - return HTTP 400 to the caller
-      # TEMPLATE_ERROR_PASSTHROUGH: "true"
+      #   false (default) - log a warning and forward the original unmodified value
+      #   true            - return HTTP 400 to the caller
+      # TEMPLATE_STRICT: "false"
 
     restart: unless-stopped
 

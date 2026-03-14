@@ -115,9 +115,9 @@ postencil does not resolve these. If you use `sequence-id` in your webhook URL, 
 
 ### Error handling
 
-| Variable                     | Default | Description                                                                                                              |
-| ---------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `TEMPLATE_ERROR_PASSTHROUGH` | `true`  | On template failure, log a warning and forward the original unmodified value. Set to `false` to return HTTP 400 instead. |
+| Variable          | Default | Description                                                                                                                |
+| ----------------- | ------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `TEMPLATE_STRICT` | `false` | On template failure, log a warning and forward the original unmodified value.<br>Set to `true` to return HTTP 400 instead. |
 
 The default preserves the transparent-by-default principle: a broken template should not silently drop your webhook.
 
@@ -151,7 +151,7 @@ The dot context (`.`) is the parsed JSON body of the incoming request.
 {{if eq .action "opened"}}opened{{else}}updated{{end}}
 ```
 
-If a template references a key that doesn't exist in the JSON body, rendering fails and postencil falls back to the original value (with `TEMPLATE_ERROR_PASSTHROUGH=true`) or returns a 400 (with `TEMPLATE_ERROR_PASSTHROUGH=false`).
+If a template references a key that doesn't exist in the JSON body, rendering fails and postencil falls back to the original value (with `TEMPLATE_STRICT=false`) or returns a 400 (with `TEMPLATE_STRICT=true`).
 
 ---
 

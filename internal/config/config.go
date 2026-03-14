@@ -30,10 +30,10 @@ type Config struct {
 	// TemplateBody controls whether the request body is rendered as a Go template.
 	TemplateBody bool
 
-	// TemplateErrorPassthrough controls behaviour when template rendering fails.
-	//   true (default): log a warning and forward the original unmodified value.
-	//   false: return HTTP 400 to the caller.
-	TemplateErrorPassthrough bool
+	// TemplateStrict controls behaviour when template rendering fails.
+	//   false (default): log a warning and forward the original unmodified value.
+	//   true: return HTTP 400 to the caller.
+	TemplateStrict bool
 
 	// LogLevel is the minimum log level emitted. Default: info.
 	LogLevel slog.Level
@@ -51,15 +51,15 @@ type Config struct {
 // Load reads all configuration from environment variables.
 func Load() (*Config, error) {
 	cfg := &Config{
-		TargetURL:                getEnv("TARGET_URL", ""),
-		ListenAddr:               getEnv("LISTEN_ADDR", ":8080"),
-		TemplateQueryParams:      fieldset.Parse(getEnv("TEMPLATE_QUERY_PARAMS", "false")),
-		TemplateHeaders:          fieldset.Parse(getEnv("TEMPLATE_HEADERS", "false")),
-		TemplateBody:             getEnvBool("TEMPLATE_BODY", false),
-		TemplateErrorPassthrough: getEnvBool("TEMPLATE_ERROR_PASSTHROUGH", true),
-		CensorAuthTokens:         getEnvBool("CENSOR_AUTH_TOKENS", true),
-		CensoredHeaders:          parseList(getEnv("CENSORED_HEADERS", "Authorization")),
-		CensoredQueryParams:      parseList(getEnv("CENSORED_QUERY_PARAMS", "auth,token")),
+		TargetURL:           getEnv("TARGET_URL", ""),
+		ListenAddr:          getEnv("LISTEN_ADDR", ":8080"),
+		TemplateQueryParams: fieldset.Parse(getEnv("TEMPLATE_QUERY_PARAMS", "false")),
+		TemplateHeaders:     fieldset.Parse(getEnv("TEMPLATE_HEADERS", "false")),
+		TemplateBody:        getEnvBool("TEMPLATE_BODY", false),
+		TemplateStrict:      getEnvBool("TEMPLATE_STRICT", false),
+		CensorAuthTokens:    getEnvBool("CENSOR_AUTH_TOKENS", true),
+		CensoredHeaders:     parseList(getEnv("CENSORED_HEADERS", "Authorization")),
+		CensoredQueryParams: parseList(getEnv("CENSORED_QUERY_PARAMS", "auth,token")),
 	}
 
 	level, err := parseLogLevel(getEnv("LOG_LEVEL", "info"))
