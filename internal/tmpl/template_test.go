@@ -60,6 +60,21 @@ func TestRender(t *testing.T) {
 			data: map[string]any{"repository": map[string]any{"full_name": "myorg/myrepo"}},
 			want: "myorg_myrepo",
 		},
+		{
+			// env and expandenv are removed from the funcmap to prevent leaking process
+			// environment variables (e.g. secrets injected via env vars) when TEMPLATE_BODY
+			// renders a user-controlled request body as a template.
+			name:    "env function is not available",
+			tmpl:    `{{env "PATH"}}`,
+			data:    map[string]any{},
+			wantErr: true,
+		},
+		{
+			name:    "expandenv function is not available",
+			tmpl:    `{{expandenv "$PATH"}}`,
+			data:    map[string]any{},
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {

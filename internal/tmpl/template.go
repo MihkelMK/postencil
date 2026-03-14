@@ -10,16 +10,26 @@ import (
 	"github.com/Masterminds/sprig/v3"
 )
 
+// safeFuncMap returns the Sprig text funcmap with environment-access functions removed.
+// env/expandenv are excluded because TEMPLATE_BODY renders the request body as a template,
+// meaning an attacker who controls the body could read arbitrary process environment
+// variables (e.g. secrets injected via env vars) using {{ env "SECRET" }}.
+func safeFuncMap() template.FuncMap {
+	fm := sprig.TxtFuncMap()
+	delete(fm, "env")
+	delete(fm, "expandenv")
+	return fm
+}
+
 // Render parses and executes tmpl as a Go text/template with data as its dot context.
 // Returns an error if the template is invalid or if a key referenced in the template
 // is missing from data.
 //
-// All Sprig functions are available: https://masterminds.github.io/sprig/
-// Use sprig.TxtFuncMap() — not sprig.FuncMap() — as it excludes functions
-// that make network calls, which are inappropriate in a proxy context.
+// Most Sprig functions are available: https://masterminds.github.io/sprig/
+// env and expandenv are excluded — see safeFuncMap.
 func Render(tmpl string, data map[string]any) (string, error) {
 	t, err := template.New("").
-		Funcs(sprig.TxtFuncMap()).
+		Funcs(safeFuncMap()).
 		Option("missingkey=error").
 		Parse(tmpl)
 	if err != nil {

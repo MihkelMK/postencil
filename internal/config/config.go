@@ -30,6 +30,14 @@ type Config struct {
 	// TemplateBody controls whether the request body is rendered as a Go template.
 	TemplateBody bool
 
+	// TemplateMethod is a Go template rendered against body data to override the forwarded HTTP method.
+	// Empty string (default) means use the method from the incoming request.
+	TemplateMethod string
+
+	// TemplatePath is a Go template rendered against body data to override the forwarded request path.
+	// Empty string (default) means use the path from the incoming request.
+	TemplatePath string
+
 	// TemplateStrict controls behaviour when template rendering fails.
 	//   false (default): log a warning and forward the original unmodified value.
 	//   true: return HTTP 400 to the caller.
@@ -56,6 +64,8 @@ func Load() (*Config, error) {
 		TemplateQueryParams: fieldset.Parse(getEnv("TEMPLATE_QUERY_PARAMS", "false")),
 		TemplateHeaders:     fieldset.Parse(getEnv("TEMPLATE_HEADERS", "false")),
 		TemplateBody:        getEnvBool("TEMPLATE_BODY", false),
+		TemplateMethod:      getEnv("TEMPLATE_METHOD", ""),
+		TemplatePath:        getEnv("TEMPLATE_PATH", ""),
 		TemplateStrict:      getEnvBool("TEMPLATE_STRICT", false),
 		CensorAuthTokens:    getEnvBool("CENSOR_AUTH_TOKENS", true),
 		CensoredHeaders:     parseList(getEnv("CENSORED_HEADERS", "Authorization")),

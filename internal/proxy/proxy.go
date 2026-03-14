@@ -65,22 +65,59 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		)
 	}
 
-	// ── Parse JSON body if templating is enabled anywhere ──────────────────
+	// ── Build template data ────────────────────────────────────────────────
+	// data is nil when no templating is configured; all render calls treat nil as passthrough.
 	var data map[string]any
-	needsParsing := h.cfg.TemplateQueryParams.Enabled() ||
+	needsData := h.cfg.TemplateQueryParams.Enabled() ||
 		h.cfg.TemplateHeaders.Enabled() ||
-		h.cfg.TemplateBody
+		h.cfg.TemplateBody ||
+		h.cfg.TemplateMethod != "" ||
+		h.cfg.TemplatePath != ""
 
-	if needsParsing && len(bodyBytes) > 0 {
-		if err := json.Unmarshal(bodyBytes, &data); err != nil {
-			h.logger.WarnContext(ctx, "failed to parse JSON body for templating — forwarding untouched",
-				"error", err,
-			)
+	if needsData {
+		data = make(map[string]any)
+
+		if len(bodyBytes) > 0 {
+			if err := json.Unmarshal(bodyBytes, &data); err != nil {
+				h.logger.WarnContext(ctx, "failed to parse JSON body for templating — forwarding untouched",
+					"error", err,
+				)
+				if h.cfg.TemplateStrict {
+					http.Error(w, fmt.Sprintf("failed to parse JSON body: %v", err), http.StatusBadRequest)
+					return
+				}
+				data = make(map[string]any) // reset; request metadata still injected below
+			}
+			if data == nil {
+				data = make(map[string]any) // handle JSON null body
+			}
+		}
+
+		// Warn or error if the body has a top-level "request" key — it will be overwritten
+		// by the injected request metadata that templates can access via .request.*.
+		if _, exists := data["request"]; exists {
+			h.logger.WarnContext(ctx, `body has top-level "request" key — overwritten by injected request metadata`)
 			if h.cfg.TemplateStrict {
-				http.Error(w, fmt.Sprintf("failed to parse JSON body: %v", err), http.StatusBadRequest)
+				http.Error(w, `body key "request" conflicts with injected request metadata`, http.StatusBadRequest)
 				return
 			}
-			// data stays nil; all render calls below treat nil data as passthrough
+		}
+
+		params := make(map[string]string, len(r.URL.Query()))
+		for k, vals := range r.URL.Query() {
+			if len(vals) > 0 {
+				params[k] = vals[0]
+			}
+		}
+		reqHeaders := make(map[string]string, len(r.Header))
+		for k, vals := range r.Header {
+			reqHeaders[k] = strings.Join(vals, ", ")
+		}
+		data["request"] = map[string]any{
+			"method":  r.Method,
+			"path":    r.URL.Path,
+			"params":  params,
+			"headers": reqHeaders,
 		}
 	}
 
@@ -94,6 +131,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, fmt.Sprintf("template error: %v", err), http.StatusBadRequest)
 				return
 			}
+		} else if h.cfg.TemplateQueryParams.Matches(key) {
+			h.logger.InfoContext(ctx, "modified query param", "key", key)
 		}
 		outQuery[key] = rendered
 	}
@@ -108,6 +147,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, fmt.Sprintf("template error: %v", err), http.StatusBadRequest)
 				return
 			}
+		} else if h.cfg.TemplateHeaders.Matches(key) {
+			h.logger.InfoContext(ctx, "modified header", "key", key)
 		}
 		outHeaders[key] = rendered
 	}
@@ -131,6 +172,66 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// ── Render method ──────────────────────────────────────────────────────
+	outMethod := r.Method
+	if h.cfg.TemplateMethod != "" {
+		rendered, err := tmpl.Render(h.cfg.TemplateMethod, data)
+		if err != nil {
+			h.logger.WarnContext(ctx, "template render failed", "location", "method", "error", err)
+			if h.cfg.TemplateStrict {
+				http.Error(w, fmt.Sprintf("template error in method: %v", err), http.StatusBadRequest)
+				return
+			}
+			// non-strict: keep original method
+		} else {
+			// HTTP methods must be a non-empty token with no whitespace (RFC 7230 §3.1.1).
+			// A template that renders to "" or "GET /path" is almost certainly a bug.
+			if rendered == "" || strings.ContainsAny(rendered, " \t\r\n") {
+				h.logger.WarnContext(ctx, "rendered method is invalid", "method", rendered)
+				if h.cfg.TemplateStrict {
+					http.Error(w, fmt.Sprintf("template error in method: rendered value %q is not a valid HTTP method", rendered), http.StatusBadRequest)
+					return
+				}
+				// non-strict: keep original method
+			} else {
+				outMethod = rendered
+				if outMethod != r.Method {
+					h.logger.InfoContext(ctx, "modified request method", "from", r.Method, "to", outMethod)
+				}
+			}
+		}
+	}
+
+	// ── Render path ────────────────────────────────────────────────────────
+	outPath := r.URL.Path
+	if h.cfg.TemplatePath != "" {
+		rendered, err := tmpl.Render(h.cfg.TemplatePath, data)
+		if err != nil {
+			h.logger.WarnContext(ctx, "template render failed", "location", "path", "error", err)
+			if h.cfg.TemplateStrict {
+				http.Error(w, fmt.Sprintf("template error in path: %v", err), http.StatusBadRequest)
+				return
+			}
+			// non-strict: keep original path
+		} else {
+			// Paths must be absolute (start with /) so they join correctly onto the
+			// target base URL. A relative path here is almost certainly a template bug.
+			if !strings.HasPrefix(rendered, "/") {
+				h.logger.WarnContext(ctx, "rendered path is invalid — must start with /", "path", rendered)
+				if h.cfg.TemplateStrict {
+					http.Error(w, fmt.Sprintf("template error in path: rendered value %q does not start with /", rendered), http.StatusBadRequest)
+					return
+				}
+				// non-strict: keep original path
+			} else {
+				outPath = rendered
+				if outPath != r.URL.Path {
+					h.logger.InfoContext(ctx, "modified request path", "from", r.URL.Path, "to", outPath)
+				}
+			}
+		}
+	}
+
 	// ── Build target URL ───────────────────────────────────────────────────
 	targetURL, err := url.Parse(h.cfg.TargetURL)
 	if err != nil {
@@ -138,11 +239,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "proxy misconfiguration", http.StatusInternalServerError)
 		return
 	}
-	targetURL.Path = strings.TrimRight(targetURL.Path, "/") + r.URL.Path
+	targetURL.Path = strings.TrimRight(targetURL.Path, "/") + outPath
 	targetURL.RawQuery = outQuery.Encode()
 
 	// ── Forward request ────────────────────────────────────────────────────
-	outReq, err := http.NewRequestWithContext(ctx, r.Method, targetURL.String(), bytes.NewReader(outBody))
+	outReq, err := http.NewRequestWithContext(ctx, outMethod, targetURL.String(), bytes.NewReader(outBody))
 	if err != nil {
 		h.logger.ErrorContext(ctx, "failed to build outgoing request", "error", err)
 		http.Error(w, "failed to build outgoing request", http.StatusInternalServerError)
@@ -152,7 +253,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	h.logger.DebugContext(ctx, "forwarding request",
 		"url", targetURL.String(),
-		"method", r.Method,
+		"method", outMethod,
 	)
 
 	resp, err := h.client.Do(outReq) //nolint:gosec // G704: forwarding to TARGET_URL is the proxy's purpose; URL is operator-configured, not user-supplied
