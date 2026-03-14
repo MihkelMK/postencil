@@ -155,7 +155,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		"method", r.Method,
 	)
 
-	resp, err := h.client.Do(outReq)
+	resp, err := h.client.Do(outReq) //nolint:gosec // G704: forwarding to TARGET_URL is the proxy's purpose; URL is operator-configured, not user-supplied
 	if err != nil {
 		h.logger.ErrorContext(ctx, "failed to reach target",
 			"error", err,

@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/MihkelMK/postencil/internal/config"
 	"github.com/MihkelMK/postencil/internal/proxy"
@@ -33,7 +34,14 @@ func main() {
 
 	handler := proxy.NewHandler(cfg, logger)
 
-	if err := http.ListenAndServe(cfg.ListenAddr, handler); err != nil {
+	srv := &http.Server{
+		Addr:         cfg.ListenAddr,
+		Handler:      handler,
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 60 * time.Second,
+		IdleTimeout:  120 * time.Second,
+	}
+	if err := srv.ListenAndServe(); err != nil {
 		logger.Error("server exited", "error", err)
 		os.Exit(1)
 	}
