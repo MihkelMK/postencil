@@ -8,7 +8,7 @@ run:
 	go run ./cmd/postencil
 
 fmt:
-	goimports -w .
+	golangci-lint fmt ./...
 
 lint:
 	golangci-lint run ./...

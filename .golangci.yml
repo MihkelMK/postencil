@@ -7,7 +7,11 @@ linters:
     - gosec
     - misspell
     - noctx
+    - predeclared
+    - unconvert
     - unparam
+    - usetesting
+    - usestdlibvars
   exclusions:
     generated: lax
     presets:
