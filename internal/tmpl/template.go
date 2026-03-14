@@ -6,13 +6,22 @@ package tmpl
 import (
 	"bytes"
 	"text/template"
+
+	"github.com/Masterminds/sprig/v3"
 )
 
 // Render parses and executes tmpl as a Go text/template with data as its dot context.
 // Returns an error if the template is invalid or if a key referenced in the template
 // is missing from data.
+//
+// All Sprig functions are available: https://masterminds.github.io/sprig/
+// Use sprig.TxtFuncMap() — not sprig.FuncMap() — as it excludes functions
+// that make network calls, which are inappropriate in a proxy context.
 func Render(tmpl string, data map[string]any) (string, error) {
-	t, err := template.New("").Option("missingkey=error").Parse(tmpl)
+	t, err := template.New("").
+		Funcs(sprig.TxtFuncMap()).
+		Option("missingkey=error").
+		Parse(tmpl)
 	if err != nil {
 		return "", err
 	}
