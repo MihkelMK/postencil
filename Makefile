@@ -1,6 +1,7 @@
 .PHONY: build run fmt lint test docker
 
 build:
+	@mkdir -p bin
 	go build -o bin/postencil ./cmd/postencil
 
 run:
