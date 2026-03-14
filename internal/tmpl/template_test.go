@@ -52,6 +52,14 @@ func TestRender(t *testing.T) {
 			data: map[string]any{},
 			want: "",
 		},
+		{
+			// replace is the primary documented use case: sanitize repository.full_name
+			// for use in sequence-id, which cannot contain slashes.
+			name: "sprig replace function",
+			tmpl: `{{.repository.full_name | replace "/" "_"}}`,
+			data: map[string]any{"repository": map[string]any{"full_name": "myorg/myrepo"}},
+			want: "myorg_myrepo",
+		},
 	}
 
 	for _, tt := range tests {
