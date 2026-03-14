@@ -16,28 +16,28 @@ func TestParse(t *testing.T) {
 		{
 			input:      "",
 			enabled:    false,
-			matchFalse: []string{"X-ID", "Authorization", "anything"},
+			matchFalse: []string{"sequence-id", "Authorization", "anything"},
 		},
 		{
 			input:      "false",
 			enabled:    false,
-			matchFalse: []string{"X-ID", "Authorization"},
+			matchFalse: []string{"sequence-id", "Authorization"},
 		},
 		{
 			input:     "true",
 			enabled:   true,
-			matchTrue: []string{"X-ID", "Authorization", "anything"},
+			matchTrue: []string{"sequence-id", "Authorization", "anything"},
 		},
 		{
-			input:      "X-ID",
+			input:      "sequence-id",
 			enabled:    true,
-			matchTrue:  []string{"X-ID"},
+			matchTrue:  []string{"sequence-id"},
 			matchFalse: []string{"x-id", "Authorization", "Topic"},
 		},
 		{
-			input:      "X-ID, Topic, Tags",
+			input:      "sequence-id, Topic, Tags",
 			enabled:    true,
-			matchTrue:  []string{"X-ID", "Topic", "Tags"},
+			matchTrue:  []string{"sequence-id", "Topic", "Tags"},
 			matchFalse: []string{"x-id", "Authorization", "title"},
 		},
 	}
@@ -71,6 +71,7 @@ func TestString(t *testing.T) {
 		{"false", "false"},
 		{"", "false"},
 		{"true", "true"},
+		{"sequence-id", "[sequence-id]"},
 	}
 
 	for _, tt := range tests {

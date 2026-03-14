@@ -15,18 +15,20 @@ postencil fills that gap by rendering templates in any field you choose before t
 
 ### Example: Forgejo → ntfy with updating notifications
 
-ntfy can update an existing notification in-place if you send the same `X-ID`.\
+ntfy can update an existing notification in-place if you send the same `sequence-id`.\
 By putting a template in the webhook URL's query params, each PR gets a stable, deterministic ID.\
 This way updates replace the existing notification rather than creating a new one, and closing a PR can delete it.
 
 ```
 # Forgejo webhook URL
-http://postencil:8080/my-topic?X-ID=forgejo-pr-{{.repository.full_name}}-{{.pull_request.number}}
+http://postencil:8080/my-topic?sequence-id=forgejo-pr-{{ .repository.full_name | replace "/" "_" }}-{{ .pull_request.number }}
 ```
 
+The `replace` is needed for ntfy. Having a literal or URL encoded `/` for `sequence-id` results in a failed request.
+
 ```yaml
-# postencil config (only X-ID is rendered, everything else is untouched)
-TEMPLATE_QUERY_PARAMS: "X-ID"
+# postencil config (only sequence-id is rendered, everything else is untouched)
+TEMPLATE_QUERY_PARAMS: "sequence-id"
 TARGET_URL: "https://ntfy.example.com"
 ```
 
@@ -62,7 +64,7 @@ services:
       - "8080:8080"
     environment:
       TARGET_URL: "https://ntfy.example.com"
-      TEMPLATE_QUERY_PARAMS: "X-ID"
+      TEMPLATE_QUERY_PARAMS: "sequence-id"
 ```
 
 ### Build from source
@@ -108,8 +110,8 @@ Each field-level option accepts one of three values:
 | `TEMPLATE_BODY`         | `false` | Whether to render the entire request body. |
 
 **On alias resolution:**\
-ntfy and other services often have aliases for the same field (e.g. `X-ID`, `id`, `x-id`).\
-postencil does not resolve these. If you use `X-ID` in your webhook URL, put `X-ID` in the env var.
+ntfy and other services often have aliases for the same field (e.g. querry param `sequence-id` and headers `X-Sequence-ID`, `SEQUENCE-ID`, `SID`).\
+postencil does not resolve these. If you use `sequence-id` in your webhook URL, put `sequence-id` in the env var.
 
 ### Error handling
 

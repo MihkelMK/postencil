@@ -59,8 +59,8 @@ services:
       #   true         - render all keys
       #   "Key1,Key2"  - render only those exact key names (case-sensitive, no alias resolution)
       #
-      # Example for Forgejo → ntfy: only render X-ID so PR updates replace their notification
-      TEMPLATE_QUERY_PARAMS: "X-ID"
+      # Example for Forgejo → ntfy: only render sequence-id so PR updates replace their notification
+      TEMPLATE_QUERY_PARAMS: "sequence-id"
 
       # TEMPLATE_HEADERS: "false"
       # TEMPLATE_BODY: "false"
