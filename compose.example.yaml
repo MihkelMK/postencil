@@ -1,6 +1,6 @@
 services:
   postencil:
-    image: ghcr.io/MihkelMK/postencil:latest
+    image: ghcr.io/mihkelmk/postencil:latest
     container_name: postencil
     ports:
       - "8080:8080"
