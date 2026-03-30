@@ -81,6 +81,17 @@ services:
       #   true            - return HTTP 400 to the caller
       # TEMPLATE_STRICT: "false"
 
+      # Static headers always added to forwarded requests. Comma-separated Key=Value pairs.
+      # Use case: inject auth tokens the sender has no way to add (e.g. beszel → gatus).
+      #
+      # Literal value:
+      # TARGET_HEADERS: "Authorization=Bearer your-token"
+      #
+      # From a Docker secret (file contains the full value, e.g. "Bearer your-token"):
+      # TARGET_HEADERS: "Authorization=@/run/secrets/gatus-token"
+      # secrets:
+      #   - gatus-token
+
     healthcheck:
       test: ["CMD", "/postencil", "--healthcheck"]
       interval: 30s

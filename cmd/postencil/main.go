@@ -50,6 +50,13 @@ func main() {
 		Level: cfg.LogLevel,
 	}))
 
+	// Collect TARGET_HEADERS key names for the startup log. Values are not logged
+	// as they typically contain secrets (e.g. Bearer tokens).
+	targetHeaderKeys := make([]string, 0, len(cfg.TargetHeaders))
+	for k := range cfg.TargetHeaders {
+		targetHeaderKeys = append(targetHeaderKeys, k)
+	}
+
 	logger.Info("postencil starting",
 		"listen", cfg.ListenAddr,
 		"target", cfg.TargetURL,
@@ -59,6 +66,7 @@ func main() {
 		"template_method", cfg.TemplateMethod,
 		"template_path", cfg.TemplatePath,
 		"template_strict", cfg.TemplateStrict,
+		"target_headers", targetHeaderKeys,
 		"censor_auth_tokens", cfg.CensorAuthTokens,
 		"log_level", cfg.LogLevel.String(),
 	)

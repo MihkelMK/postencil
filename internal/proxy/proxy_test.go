@@ -669,6 +669,86 @@ func TestRequestKeyCollisionStrict(t *testing.T) {
 	}
 }
 
+func TestTargetHeaderInjected(t *testing.T) {
+	// Use case: the target requires an auth token that the sender (e.g. beszel)
+	// has no way to include. TARGET_HEADERS injects it on every forwarded request.
+	var gotAuth string
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer target.Close()
+
+	cfg := newTestConfig(target.URL)
+	cfg.TargetHeaders = map[string]string{"Authorization": "Bearer secret-token"}
+	h := proxy.NewHandler(cfg, newLogger())
+
+	req := httptest.NewRequest(http.MethodPost, "/topic", strings.NewReader("{}"))
+	rr := httptest.NewRecorder()
+
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", rr.Code)
+	}
+	if gotAuth != "Bearer secret-token" {
+		t.Errorf("Authorization = %q, want %q", gotAuth, "Bearer secret-token")
+	}
+}
+
+func TestTargetHeaderOverwritesIncoming(t *testing.T) {
+	// TARGET_HEADERS always wins over whatever the incoming request carries.
+	// This ensures the target's auth token cannot be spoofed by the sender.
+	var gotAuth string
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer target.Close()
+
+	cfg := newTestConfig(target.URL)
+	cfg.TargetHeaders = map[string]string{"Authorization": "Bearer target-token"}
+	h := proxy.NewHandler(cfg, newLogger())
+
+	req := httptest.NewRequest(http.MethodPost, "/topic", strings.NewReader("{}"))
+	req.Header.Set("Authorization", "Bearer incoming-token")
+	rr := httptest.NewRecorder()
+
+	h.ServeHTTP(rr, req)
+
+	if gotAuth != "Bearer target-token" {
+		t.Errorf("Authorization = %q, want target token %q", gotAuth, "Bearer target-token")
+	}
+}
+
+func TestTargetHeaderTakesPrecedenceOverTemplateHeader(t *testing.T) {
+	// TARGET_HEADERS is applied after TEMPLATE_HEADERS rendering, so it always
+	// wins if both configure the same header. Operators should not set the same
+	// header in both — TARGET_HEADERS will silently overwrite the rendered value.
+	var gotHeader string
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotHeader = r.Header.Get("X-Custom")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer target.Close()
+
+	cfg := newTestConfig(target.URL)
+	cfg.TemplateHeaders = fieldset.Parse("X-Custom")
+	cfg.TargetHeaders = map[string]string{"X-Custom": "from-target"}
+	h := proxy.NewHandler(cfg, newLogger())
+
+	body := `{"value":"from-template"}`
+	req := httptest.NewRequest(http.MethodPost, "/topic", strings.NewReader(body))
+	req.Header.Set("X-Custom", "{{.value}}")
+	rr := httptest.NewRecorder()
+
+	h.ServeHTTP(rr, req)
+
+	if gotHeader != "from-target" {
+		t.Errorf("X-Custom = %q, want %q (TARGET_HEADERS should win)", gotHeader, "from-target")
+	}
+}
+
 func TestUntouchedQueryParamNotTemplated(t *testing.T) {
 	var gotTopic string
 	var gotID string

@@ -2,6 +2,8 @@ package config_test
 
 import (
 	"log/slog"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/MihkelMK/postencil/internal/config"
@@ -122,6 +124,39 @@ func TestLoadTemplateStrict(t *testing.T) {
 	}
 	if !cfg.TemplateStrict {
 		t.Errorf("TemplateStrict = false, want true")
+	}
+}
+
+func TestLoadTargetHeadersFromFile(t *testing.T) {
+	// Simulate a Docker secret: a file containing the full header value with a
+	// trailing newline, which is what Docker always appends when mounting a secret.
+	// The file holds the complete value (including "Bearer ") so the env var stays
+	// secret-agnostic: TARGET_HEADERS="Authorization=@/run/secrets/gatus-token".
+	secretFile := filepath.Join(t.TempDir(), "gatus-token")
+	if err := os.WriteFile(secretFile, []byte("Bearer my-secret-token\n"), 0o600); err != nil {
+		t.Fatalf("writing secret file: %v", err)
+	}
+
+	t.Setenv("TARGET_URL", "http://example.com")
+	t.Setenv("TARGET_HEADERS", "Authorization=@"+secretFile)
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if got := cfg.TargetHeaders["Authorization"]; got != "Bearer my-secret-token" {
+		t.Errorf("Authorization = %q, want %q", got, "Bearer my-secret-token")
+	}
+}
+
+func TestLoadTargetHeadersMissingFileReturnsError(t *testing.T) {
+	// A missing secret file must fail startup so the container doesn't run without auth.
+	t.Setenv("TARGET_URL", "http://example.com")
+	t.Setenv("TARGET_HEADERS", "Authorization=@/nonexistent/secret")
+
+	_, err := config.Load()
+	if err == nil {
+		t.Error("Load() with missing secret file should return error")
 	}
 }
 

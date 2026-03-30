@@ -37,6 +37,22 @@ TARGET_URL: "https://ntfy.example.com"
 
 _postencil is target-agnostic. It knows nothing about Forgejo or ntfy specifically._
 
+### Example: Beszel → Gatus with authentication
+
+[Beszel](https://beszel.dev) sends heartbeat pings but has no option to add custom headers. [Gatus](https://gatus.io) requires an `Authorization` header on incoming heartbeats. postencil bridges the gap.
+
+```yaml
+TARGET_URL: "https://gatus.example.com"
+
+# Literal token
+TARGET_HEADERS: "Authorization=Bearer your-gatus-token"
+
+# Or via Docker secret (file contains: Bearer your-gatus-token)
+TARGET_HEADERS: "Authorization=@/run/secrets/gatus-token"
+```
+
+Beszel points its heartbeat URL at postencil. postencil injects the Authorization header on every forwarded request — Beszel never needs to know the token exists.
+
 ---
 
 ## How it works
@@ -115,6 +131,45 @@ All configuration is via environment variables. The only required variable is `T
 **On alias resolution:**\
 ntfy and other services often have aliases for the same field (e.g. querry param `sequence-id` and headers `X-Sequence-ID`, `SEQUENCE-ID`, `SID`). **postencil does not resolve these.**\
 If you use `sequence-id` in your webhook URL, put `sequence-id` in the env var.
+
+### Target headers
+
+| Variable         | Default | Description                                                          |
+| ---------------- | ------- | -------------------------------------------------------------------- |
+| `TARGET_HEADERS` | -       | Static headers always set on the forwarded request. Comma-separated `Key=Value` pairs. |
+
+```yaml
+# Single header (literal value)
+TARGET_HEADERS: "Authorization=Bearer your-token"
+
+# Multiple headers
+TARGET_HEADERS: "Authorization=Bearer your-token,X-Custom=value"
+
+# Value from file — Docker secrets
+TARGET_HEADERS: "Authorization=@/run/secrets/gatus-token"
+```
+
+**Docker secrets:** prefix the value with `@` to read it from a file at startup. The file should contain the complete header value (e.g. `Bearer my-token`). Docker always appends a newline — postencil trims it automatically. A missing or unreadable file causes startup to fail rather than silently forwarding requests without the header.
+
+```yaml
+# docker-compose.yml
+services:
+  postencil:
+    environment:
+      TARGET_HEADERS: "Authorization=@/run/secrets/gatus-token"
+    secrets:
+      - gatus-token
+
+secrets:
+  gatus-token:
+    file: ./secrets/gatus-token.txt  # contains: Bearer your-actual-token
+```
+
+**Precedence:** `TARGET_HEADERS` is applied after `TEMPLATE_HEADERS` rendering. If the same header appears in both, `TARGET_HEADERS` wins and the rendered value is discarded. Do not configure the same header in both.
+
+**Limitation:** values cannot contain commas — a comma always starts a new entry. This is safe for Bearer tokens (Base64 uses no commas) but may cause silent truncation for other values. Use the `@file` form to avoid this entirely.
+
+**Values are never logged**, even at debug level. The startup log records which header names are configured.
 
 ### Error handling
 

@@ -155,6 +155,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	for _, hop := range hopByHopHeaders {
 		outHeaders.Del(hop)
 	}
+	for k, v := range h.cfg.TargetHeaders {
+		outHeaders.Set(k, v)
+	}
 
 	// ── Render body ────────────────────────────────────────────────────────
 	outBody := bodyBytes

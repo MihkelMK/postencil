@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
@@ -54,10 +55,20 @@ type Config struct {
 
 	// CensoredQueryParams is the list of query param names to redact when CensorAuthTokens is true.
 	CensoredQueryParams []string
+
+	// TargetHeaders is a map of headers always set on the forwarded request,
+	// regardless of what headers the incoming request carries.
+	// Parsed from TARGET_HEADERS (comma-separated Key=Value pairs).
+	TargetHeaders map[string]string
 }
 
 // Load reads all configuration from environment variables.
 func Load() (*Config, error) {
+	targetHeaders, err := parseHeaderMap(getEnv("TARGET_HEADERS", ""))
+	if err != nil {
+		return nil, err
+	}
+
 	cfg := &Config{
 		TargetURL:           getEnv("TARGET_URL", ""),
 		ListenAddr:          getEnv("LISTEN_ADDR", ":8080"),
@@ -70,6 +81,7 @@ func Load() (*Config, error) {
 		CensorAuthTokens:    getEnvBool("CENSOR_AUTH_TOKENS", true),
 		CensoredHeaders:     parseList(getEnv("CENSORED_HEADERS", "Authorization")),
 		CensoredQueryParams: parseList(getEnv("CENSORED_QUERY_PARAMS", "auth,token")),
+		TargetHeaders:       targetHeaders,
 	}
 
 	level, err := parseLogLevel(getEnv("LOG_LEVEL", "info"))
@@ -102,6 +114,46 @@ func getEnvBool(key string, def bool) bool {
 		return def
 	}
 	return b
+}
+
+// parseHeaderMap parses a comma-separated list of Key=Value pairs into a header
+// map. The key is split at the first '=' only, so values may contain '='.
+// Header names are canonicalised (e.g. "authorization" → "Authorization").
+//
+// Values starting with '@' are treated as file paths — the file contents are
+// read and used as the value (whitespace trimmed). This supports Docker secrets:
+//
+//	TARGET_HEADERS="Authorization=Bearer @/run/secrets/my-token"
+//
+// A missing or unreadable file returns an error, failing startup rather than
+// silently forwarding requests without the intended header.
+//
+// Limitation: values cannot contain commas — a comma always starts a new entry.
+// This is not an issue for Bearer tokens (Base64 uses no commas), but be aware
+// if injecting other header values.
+func parseHeaderMap(s string) (map[string]string, error) {
+	out := make(map[string]string)
+	for part := range strings.SplitSeq(s, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		k, v, ok := strings.Cut(part, "=")
+		if !ok {
+			continue
+		}
+		k = http.CanonicalHeaderKey(strings.TrimSpace(k))
+		v = strings.TrimSpace(v)
+		if strings.HasPrefix(v, "@") {
+			contents, err := os.ReadFile(strings.TrimPrefix(v, "@"))
+			if err != nil {
+				return nil, fmt.Errorf("TARGET_HEADERS: reading file for %q: %w", k, err)
+			}
+			v = strings.TrimSpace(string(contents))
+		}
+		out[k] = v
+	}
+	return out, nil
 }
 
 func parseList(s string) []string {
